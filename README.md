@@ -2,7 +2,7 @@
 
 Простой, но мощный CLI-инструмент на Python для рекурсивного обхода веб-страниц по заданному URL и объединения их в единый PDF-файл. Скрипт использует `Playwright` для точного рендеринга страниц (включая JavaScript) и `rich` для красивого и информативного интерфейса в терминале.
 
-![Demo GIF](src/demo.gif)
+![Demo GIF](https://github.com/kkrugley/webcrawler/blob/main/src/demo.gif)
 
 ## ✨ Возможности
 
