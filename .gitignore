@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-selfcheck.json
+
+# Playwright
+.cache/
+playwright-report/
+
+# Output files
+output_pdfs/
+*.pdf
+
+# IDE settings
+.idea/
+.vscode/
