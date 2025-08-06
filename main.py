@@ -6,7 +6,7 @@ from pathlib import Path
 
 # --- Визуализация и интерактивность ---
 from rich.console import Console
-from rich.prompt import Prompt, IntPrompt
+from rich.prompt import Prompt, IntPrompt, Confirm
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
 # ------------------------------------
@@ -38,9 +38,10 @@ def get_user_config() -> dict:
     """Запрашивает конфигурацию у пользователя в интерактивном режиме."""
     console.print(Panel.fit("[bold cyan]Добро пожаловать в Web-To-PDF Crawler![/bold cyan]\nДавайте настроим параметры для обхода сайта.", title="Настройка"))
     
-    start_url = Prompt.ask("[yellow]Введите стартовый URL[/yellow]", default="https://www.etsy.com/seller-handbook")
+    start_url = Prompt.ask("[yellow]Введите стартовый URL[/yellow]", default="https://kkrugley.github.io/")
     max_depth = IntPrompt.ask("[yellow]Введите максимальную глубину обхода[/yellow]", default=1)
     request_delay = IntPrompt.ask("[yellow]Введите задержку между запросами (сек)[/yellow]", default=2)
+    merge_files = Confirm.ask("[yellow]Объединять загруженные файлы?[/yellow]", default=True)
     
     return {
         "START_URL": start_url,
@@ -49,6 +50,7 @@ def get_user_config() -> dict:
         "OUTPUT_DIR": "output_pdfs",
         "MERGED_FILENAME": "merged_output.pdf",
         "DELETE_INDIVIDUAL_FILES": True,
+        "MERGE_FILES": merge_files,
     }
 
 def sanitize_filename(title: str) -> str:
@@ -180,23 +182,26 @@ async def main(CONFIG: dict):
         await browser.close()
 
     if pdf_files:
-        console.print(f"\n[bold green]Обход завершен. Найдено {len(pdf_files)} страниц. Начинаем слияние...[/bold green]")
-        merger = PdfWriter()
-        for pdf_path in sorted(pdf_files):
-            try:
-                merger.append(pdf_path)
-            except Exception:
-                console.print(f"[yellow]  [!] Не удалось добавить файл {pdf_path}, пропускаем.[/yellow]")
+        if CONFIG["MERGE_FILES"]:
+            console.print(f"\n[bold green]Обход завершен. Найдено {len(pdf_files)} страниц. Начинаем слияние...[/bold green]")
+            merger = PdfWriter()
+            for pdf_path in sorted(pdf_files):
+                try:
+                    merger.append(pdf_path)
+                except Exception:
+                    console.print(f"[yellow]  [!] Не удалось добавить файл {pdf_path}, пропускаем.[/yellow]")
 
-        merged_filepath = CONFIG["MERGED_FILENAME"]
-        merger.write(merged_filepath)
-        merger.close()
-        console.print(f"[bold magenta]🎉 Все страницы успешно объединены в один файл: {merged_filepath}[/bold magenta]")
+            merged_filepath = CONFIG["MERGED_FILENAME"]
+            merger.write(merged_filepath)
+            merger.close()
+            console.print(f"[bold magenta]🎉 Все страницы успешно объединены в один файл: {merged_filepath}[/bold magenta]")
 
-        if CONFIG["DELETE_INDIVIDUAL_FILES"]:
-            console.print("[dim]Удаляем временные файлы...[/dim]")
-            for pdf_path in pdf_files:
-                os.remove(pdf_path)
+            if CONFIG["DELETE_INDIVIDUAL_FILES"]:
+                console.print("[dim]Удаляем временные файлы...[/dim]")
+                for pdf_path in pdf_files:
+                    os.remove(pdf_path)
+        else:
+            console.print(f"\n[bold green]Обход завершен. Сохранено {len(pdf_files)} PDF-файлов в папке '{CONFIG['OUTPUT_DIR']}'.[/bold green]")
     else:
         console.print("\n[bold yellow]Не было создано ни одного PDF-файла для слияния.[/bold yellow]")
 
