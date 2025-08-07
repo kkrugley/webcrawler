@@ -15,7 +15,9 @@ playwright-report/
 
 # Output files
 output_pdfs/
+output_texts/
 *.pdf
+*.md
 
 # IDE settings
 .idea/

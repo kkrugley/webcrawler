@@ -37,18 +37,29 @@ console = Console()
 def get_user_config() -> dict:
     """Запрашивает конфигурацию у пользователя в интерактивном режиме."""
     console.print(Panel.fit("[bold cyan]Добро пожаловать в Web-To-PDF Crawler![/bold cyan]\nДавайте настроим параметры для обхода сайта.", title="Настройка"))
-    
+
     start_url = Prompt.ask("[yellow]Введите стартовый URL[/yellow]", default="https://kkrugley.github.io/")
     max_depth = IntPrompt.ask("[yellow]Введите максимальную глубину обхода[/yellow]", default=1)
     request_delay = IntPrompt.ask("[yellow]Введите задержку между запросами (сек)[/yellow]", default=2)
+
+    export_format = Prompt.ask(
+        "[yellow]Экспортировать в формате PDF или экспортировать только текст?[/yellow]",
+        choices=["PDF", "Text"],
+        default="PDF"
+    )
+
     merge_files = Confirm.ask("[yellow]Объединять загруженные файлы?[/yellow]", default=True)
-    
+
+    output_dir = "output_pdfs" if export_format == "PDF" else "output_texts"
+    merged_filename = "merged_output.pdf" if export_format == "PDF" else "merged_output.md"
+
     return {
         "START_URL": start_url,
         "MAX_DEPTH": max_depth,
         "REQUEST_DELAY": request_delay,
-        "OUTPUT_DIR": "output_pdfs",
-        "MERGED_FILENAME": "merged_output.pdf",
+        "EXPORT_FORMAT": export_format,
+        "OUTPUT_DIR": output_dir,
+        "MERGED_FILENAME": merged_filename,
         "DELETE_INDIVIDUAL_FILES": True,
         "MERGE_FILES": merge_files,
     }
@@ -60,7 +71,7 @@ def sanitize_filename(title: str) -> str:
     # Удаляем недопустимые символы для Windows/Linux/macOS
     sanitized = re.sub(r'[\\/*?:"<>|]', "", title)
     # Заменяем пробелы и длинные последовательности дефисов
-    sanitized = re.sub(r'\s+', '_', sanitized)
+    sanitized = re.sub(r'\\s+', '_', sanitized)
     sanitized = re.sub(r'__+', '_', sanitized)
     return sanitized[:100] # Ограничиваем длину имени файла
 
@@ -99,7 +110,7 @@ async def main(CONFIG: dict):
     await queue.put((start_url, 0))
     
     visited = set()
-    pdf_files = []
+    saved_files = []
 
     async with async_playwright() as p:
         console.print("[green]Запускаем браузер в фоновом режиме...[/green]")
@@ -117,6 +128,7 @@ async def main(CONFIG: dict):
 - [cyan]Хост:[/cyan] {start_hostname}
 - [cyan]Путь:[/cyan] {start_path}*
 - [cyan]Глубина:[/cyan] {CONFIG['MAX_DEPTH']}
+- [cyan]Формат:[/cyan] {CONFIG['EXPORT_FORMAT']}
         """)
 
         with Progress(
@@ -167,10 +179,18 @@ async def main(CONFIG: dict):
                             if is_valid_url(absolute_url, start_hostname, start_path) and absolute_url not in visited and absolute_url not in [item[0] for item in queue._queue]:
                                 await queue.put((absolute_url, current_depth + 1))
                     
-                    pdf_filename = sanitize_filename(page_title) + ".pdf"
-                    pdf_filepath = output_path / pdf_filename
-                    await page.pdf(path=pdf_filepath, format="A4", print_background=True)
-                    pdf_files.append(str(pdf_filepath))
+                    if CONFIG["EXPORT_FORMAT"] == "PDF":
+                        pdf_filename = sanitize_filename(page_title) + ".pdf"
+                        pdf_filepath = output_path / pdf_filename
+                        await page.pdf(path=pdf_filepath, format="A4", print_background=True)
+                        saved_files.append(str(pdf_filepath))
+                    else: # Text
+                        text_content = await page.evaluate("document.body.innerText")
+                        md_filename = sanitize_filename(page_title) + ".md"
+                        md_filepath = output_path / md_filename
+                        with open(md_filepath, "w", encoding="utf-8") as f:
+                            f.write(f"# {page_title}\n\n{text_content}")
+                        saved_files.append(str(md_filepath))
                     
                 except Exception as e:
                     progress.console.print(f"[red]  [!] Ошибка на {current_url}: {e}[/red]")
@@ -181,29 +201,44 @@ async def main(CONFIG: dict):
         await context.close()
         await browser.close()
 
-    if pdf_files:
+    if saved_files:
         if CONFIG["MERGE_FILES"]:
-            console.print(f"\n[bold green]Обход завершен. Найдено {len(pdf_files)} страниц. Начинаем слияние...[/bold green]")
-            merger = PdfWriter()
-            for pdf_path in sorted(pdf_files):
-                try:
-                    merger.append(pdf_path)
-                except Exception:
-                    console.print(f"[yellow]  [!] Не удалось добавить файл {pdf_path}, пропускаем.[/yellow]")
+            console.print(f"\n[bold green]Обход завершен. Найдено {len(saved_files)} страниц. Начинаем слияние...[/bold green]")
+            
+            if CONFIG["EXPORT_FORMAT"] == "PDF":
+                merger = PdfWriter()
+                for pdf_path in sorted(saved_files):
+                    try:
+                        merger.append(pdf_path)
+                    except Exception:
+                        console.print(f"[yellow]  [!] Не удалось добавить файл {pdf_path}, пропускаем.[/yellow]")
 
-            merged_filepath = CONFIG["MERGED_FILENAME"]
-            merger.write(merged_filepath)
-            merger.close()
-            console.print(f"[bold magenta]🎉 Все страницы успешно объединены в один файл: {merged_filepath}[/bold magenta]")
+                merged_filepath = CONFIG["MERGED_FILENAME"]
+                merger.write(merged_filepath)
+                merger.close()
+                console.print(f"[bold magenta]🎉 Все страницы успешно объединены в один файл: {merged_filepath}[/bold magenta]")
+            else: # Text merge
+                merged_filepath = CONFIG["MERGED_FILENAME"]
+                with open(merged_filepath, "w", encoding="utf-8") as merged_file:
+                    for file_path in sorted(saved_files):
+                        try:
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                merged_file.write(f.read())
+                                merged_file.write("\n\n---\n\n")
+                        except Exception as e:
+                            console.print(f"[yellow]  [!] Не удалось прочитать файл {file_path}: {e}[/yellow]")
+                console.print(f"[bold magenta]🎉 Все страницы успешно объединены в один файл: {merged_filepath}[/bold magenta]")
 
             if CONFIG["DELETE_INDIVIDUAL_FILES"]:
                 console.print("[dim]Удаляем временные файлы...[/dim]")
-                for pdf_path in pdf_files:
-                    os.remove(pdf_path)
+                for file_path in saved_files:
+                    os.remove(file_path)
         else:
-            console.print(f"\n[bold green]Обход завершен. Сохранено {len(pdf_files)} PDF-файлов в папке '{CONFIG['OUTPUT_DIR']}'.[/bold green]")
+            file_type = "PDF-файлов" if CONFIG["EXPORT_FORMAT"] == "PDF" else "MD-файлов"
+            console.print(f"\n[bold green]Обход завершен. Сохранено {len(saved_files)} {file_type} в папке '{CONFIG['OUTPUT_DIR']}'.[/bold green]")
     else:
-        console.print("\n[bold yellow]Не было создано ни одного PDF-файла для слияния.[/bold yellow]")
+        file_type = "PDF" if CONFIG["EXPORT_FORMAT"] == "PDF" else "текстовых"
+        console.print(f"\n[bold yellow]Не было создано ни одного {file_type} файла.[/bold yellow]")
 
     console.print("\n[bold]Работа скрипта завершена.[/bold]")
 
