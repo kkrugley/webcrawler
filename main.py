@@ -55,7 +55,7 @@ def get_user_config() -> dict:
     export_format = Prompt.ask(
         "[yellow]Экспортировать в формате PDF или экспортировать только текст?[/yellow]",
         choices=["PDF", "Text"],
-        default="PDF"
+        default="Text"
     )
 
     merge_files = Confirm.ask("[yellow]Объединять загруженные файлы?[/yellow]", default=True)
